@@ -3,3 +3,4 @@ obj/*
 sim_results
 stats
 traces
+.vscode
