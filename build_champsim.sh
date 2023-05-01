@@ -1,5 +1,7 @@
 #!/bin/bash
 
+BINTAG=ATLAS
+
 if [ "$#" -ne 1 ]; then
     echo "Illegal number of parameters"
     #echo "Usage: ./build_champsim.sh [branch_pred] [l1d_pref] [l2c_pref] [llc_pref] [llc_repl] [num_core]"
@@ -24,8 +26,8 @@ NORMAL=$(tput sgr0)
 BRANCH=perceptron
 L1D_PREFETCHER=no
 LLC_PREFETCHER=no
-LLC_REPLACEMENT=ship
-NUM_CORE=1
+LLC_REPLACEMENT=lru
+NUM_CORE=4````````````````````````````````
 #################################################
 
 # Sanity check
@@ -115,7 +117,7 @@ echo "L2C Prefetcher: ${L2C_PREFETCHER}"
 echo "LLC Prefetcher: ${LLC_PREFETCHER}"
 echo "LLC Replacement: ${LLC_REPLACEMENT}"
 echo "Cores: ${NUM_CORE}"
-BINARY_NAME="${BRANCH}-${L1D_PREFETCHER}-${L2C_PREFETCHER}-${LLC_PREFETCHER}-${LLC_REPLACEMENT}-${NUM_CORE}core"
+BINARY_NAME="${BRANCH}-${L1D_PREFETCHER}-${L2C_PREFETCHER}-${LLC_PREFETCHER}-${LLC_REPLACEMENT}-${NUM_CORE}core-${BINTAG}"
 echo "Binary: bin/${BINARY_NAME}"
 echo ""
 mv bin/champsim bin/${BINARY_NAME}

@@ -7,12 +7,30 @@ binDir = bin
 inc = inc
 
 debug = 1
+ATLAS = 1
+BLISS = 0
+FRFCFS = 0
 
 CFlags = -Wall -O3 -std=c++11 -D_DEFAULT_SOURCE
 LDFlags =
 libs =
 libDir =
 
+
+ifeq ($(ATLAS),1)
+	CFlags += -DATLAS
+	LDFlags += -DATLAS
+endif
+
+ifeq ($(BLISS),1)
+	CFlags += -DBLISS
+	LDFlags += -DBLISS
+endif
+
+ifeq ($(FRFCFS),1)
+	CFlags += -DFRFCFS
+	LDFlags += -DFRFCFS
+endif
 
 #************************ DO NOT EDIT BELOW THIS LINE! ************************
 
@@ -21,6 +39,7 @@ ifeq ($(debug),1)
 else
 	debug=
 endif
+
 inc := $(addprefix -I,$(inc))
 libs := $(addprefix -l,$(libs))
 libDir := $(addprefix -L,$(libDir))
@@ -47,8 +66,9 @@ $(binDir)/$(app): buildrepo $(objects)
 
 $(objDir)/%.o: %.$(srcExt)
 	@echo "Generating dependencies for $<..."
+	@echo "Compiling $< with $(CFlags) $(LDFlags) -o $@..."
 	@$(call make-depend,$<,$@,$(subst .o,.d,$@))
-	@echo "Compiling $<..."
+#    @echo "Compiling $<..."
 	@$(CC) $(CFlags) $< -o $@
 
 clean:

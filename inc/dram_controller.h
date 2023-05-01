@@ -2,6 +2,7 @@
 #define DRAM_H
 
 #include "memory_class.h"
+#include <algorithm>
 
 // DRAM configuration
 #define DRAM_CHANNEL_WIDTH 8 // 8B
@@ -23,6 +24,8 @@ extern uint32_t DRAM_MTPS, DRAM_DBUS_RETURN_TIME;
 
 void print_dram_config();
 
+
+
 // DRAM
 class MEMORY_CONTROLLER : public MEMORY {
   public:
@@ -34,6 +37,25 @@ class MEMORY_CONTROLLER : public MEMORY {
     uint8_t  do_write, write_mode[DRAM_CHANNELS]; 
     uint32_t processed_writes, scheduled_reads[DRAM_CHANNELS], scheduled_writes[DRAM_CHANNELS];
     int fill_level;
+
+    #ifdef BLISS
+
+    uint8_t last_scheduled_request;
+    uint32_t blacklisting_threshold = 4;
+    std::map<unsigned int, bool> BLACKLIST;
+    std::map<unsigned int, uint64_t> BLACKLIST_COUNTER;
+
+    #endif
+
+    #ifdef ATLAS
+
+    uint64_t ATLAS_OUTSTANDING_THRESHOLD = 10000;
+    std::map<uint32_t, unsigned int> ATLAS_RANK;
+    std::map<uint32_t, unsigned int> TOTAL_AS;
+    std::map<uint32_t, unsigned int> AS;
+    float alpha = .875;
+
+    #endif
 
     BANK_REQUEST bank_request[DRAM_CHANNELS][DRAM_RANKS][DRAM_BANKS];
 
@@ -71,6 +93,26 @@ class MEMORY_CONTROLLER : public MEMORY {
         }
 
         fill_level = FILL_DRAM;
+
+        #ifdef BLISS
+
+        last_scheduled_request = -1;
+        for(uint16_t i = 0; i < NUM_CPUS; i++){
+            BLACKLIST[i] = false;
+            BLACKLIST_COUNTER[i] = 0;
+        }
+
+        #endif
+
+        #ifdef ATLAS
+
+        for(uint16_t i = 0; i < NUM_CPUS; i++){
+            ATLAS_RANK[i] = 0;
+            TOTAL_AS[i] = 0;
+            AS[i] = 0;
+        }
+
+        #endif
     };
 
     // destructor
@@ -94,6 +136,13 @@ class MEMORY_CONTROLLER : public MEMORY {
          update_schedule_cycle(PACKET_QUEUE *queue),
          update_process_cycle(PACKET_QUEUE *queue),
          reset_remain_requests(PACKET_QUEUE *queue, uint32_t channel);
+
+    #ifdef BLISS
+    void clear_blacklist(uint32_t cpu);
+    #endif
+    #ifdef ATLAS
+    void calculateLAS();
+    #endif
 
     uint32_t dram_get_channel(uint64_t address),
              dram_get_rank   (uint64_t address),

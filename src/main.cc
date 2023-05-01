@@ -21,6 +21,10 @@ uint64_t warmup_instructions     = 1000000,
 
 time_t start_time;
 
+#ifdef BLISS
+    uint64_t blacklist_clearing_interval = 10000;
+#endif
+
 // PAGE TABLE
 uint32_t PAGE_TABLE_LATENCY = 0, SWAP_LATENCY = 0;
 queue <uint64_t > page_queue;
@@ -753,6 +757,9 @@ int main(int argc, char** argv)
     // simulation entry point
     start_time = time(NULL);
     uint8_t run_simulation = 1;
+    #ifdef ATLAS
+    uint64_t quantum_size = 10000;
+    #endif
     while (run_simulation) {
 
         uint64_t elapsed_second = (uint64_t)(time(NULL) - start_time),
@@ -864,7 +871,29 @@ int main(int argc, char** argv)
 
             if (all_simulation_complete == NUM_CPUS)
                 run_simulation = 0;
+
+            #ifdef BLISS
+            
+            if(ooo_cpu[i].temp_exec_counter > blacklist_clearing_interval){
+                ooo_cpu[i].temp_exec_counter = 0;
+                uncore.DRAM.clear_blacklist((uint32_t)i);
+            }
+
+            #endif
+
         }
+        #ifdef ATLAS
+
+        for(int i = 0; i < NUM_CPUS; i++){
+            if(ooo_cpu[i].temp_exec_counter > quantum_size){
+                //printf("Calculating LAS\n");
+                uncore.DRAM.calculateLAS();
+                ooo_cpu[i].temp_exec_counter = 0;
+                break;
+            }
+        }
+
+        #endif
 
         // TODO: should it be backward?
         uncore.LLC.operate();

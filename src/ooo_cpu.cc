@@ -1413,6 +1413,7 @@ void O3_CPU::complete_execution(uint32_t rob_index)
             ROB.entry[rob_index].executed = COMPLETED; 
             inflight_reg_executions--;
             completed_executions++;
+            temp_exec_counter++;
 
             if (ROB.entry[rob_index].reg_RAW_producer)
                 reg_RAW_release(rob_index);
@@ -1435,6 +1436,7 @@ void O3_CPU::complete_execution(uint32_t rob_index)
                 ROB.entry[rob_index].executed = COMPLETED;
                 inflight_mem_executions--;
                 completed_executions++;
+                temp_exec_counter++;
                 
                 if (ROB.entry[rob_index].reg_RAW_producer)
                     reg_RAW_release(rob_index);

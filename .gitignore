@@ -1,0 +1,5 @@
+bin/*
+obj/*
+sim_results
+stats
+traces

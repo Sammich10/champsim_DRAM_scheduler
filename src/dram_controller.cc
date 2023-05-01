@@ -18,6 +18,9 @@ void print_dram_config()
         << "min_dram_writes_per_switch " << MIN_DRAM_WRITES_PER_SWITCH << endl
         << "dram_mtps " << DRAM_MTPS << endl
         << "dram_dbus_return_time " << DRAM_DBUS_RETURN_TIME << endl
+        #ifdef ATLAS
+        << "USING ATLAS SCHEDULING" << endl
+        #endif
         << endl;
 }
 
@@ -139,6 +142,401 @@ void MEMORY_CONTROLLER::operate()
 
 void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
 {
+
+    #ifdef BLISS
+
+    uint64_t read_addr;
+    uint32_t read_channel, read_rank, read_bank, read_row;
+    uint8_t  row_buffer_hit = 0;
+
+    int index = -1;
+    uint64_t oldest_cycle = UINT64_MAX;
+
+    //if BLISS is enabled prioritize requests that are not blacklisted, then requests that are row hits, and then requests that are older
+
+    //first, search for the oldest row-buffer hit request that is not blacklisted
+    for (uint32_t i = 0; i < queue->SIZE; i++) {
+        uint8_t CPU_ID = queue->entry[i].cpu;
+        // skip if blacklisted
+        if(BLACKLIST[CPU_ID]){
+            continue;
+        }
+
+        // search for the oldest open row hit
+        // already scheduled
+        if (queue->entry[i].scheduled) 
+            continue;
+
+        // empty entry
+        read_addr = queue->entry[i].address;
+        if (read_addr == 0) 
+            continue;
+
+        read_channel = dram_get_channel(read_addr);
+        read_rank = dram_get_rank(read_addr);
+        read_bank = dram_get_bank(read_addr);
+
+        // bank is busy
+        if (bank_request[read_channel][read_rank][read_bank].working) { // should we check this or not? how do we know if bank is busy or not for all requests in the queue?
+
+            //DP ( if (warmup_complete[0]) {
+            //cout << queue->NAME << " " << __func__ << " instr_id: " << queue->entry[i].instr_id << " bank is busy";
+            //cout << " swrites: " << scheduled_writes[channel] << " sreads: " << scheduled_reads[channel];
+            //cout << " write: " << +bank_request[read_channel][read_rank][read_bank].is_write << " read: " << +bank_request[read_channel][read_rank][read_bank].is_read << hex;
+            //cout << " address: " << queue->entry[i].address << dec << " channel: " << read_channel << " rank: " << read_rank << " bank: " << read_bank << endl; });
+
+            continue;
+        }
+
+        read_row = dram_get_row(read_addr);
+        //read_column = dram_get_column(read_addr);
+
+        // check open row
+        if (bank_request[read_channel][read_rank][read_bank].open_row != read_row) {
+
+            /*
+            DP ( if (warmup_complete[0]) {
+            cout << queue->NAME << " " << __func__ << " instr_id: " << queue->entry[i].instr_id << " row is inactive";
+            cout << " swrites: " << scheduled_writes[channel] << " sreads: " << scheduled_reads[channel];
+            cout << " write: " << +bank_request[read_channel][read_rank][read_bank].is_write << " read: " << +bank_request[read_channel][read_rank][read_bank].is_read << hex;
+            cout << " address: " << queue->entry[i].address << dec << " channel: " << read_channel << " rank: " << read_rank << " bank: " << read_bank << endl; });
+            */
+
+            continue;
+        }
+
+        // select the oldest entry
+        if (queue->entry[i].event_cycle < oldest_cycle) {
+            oldest_cycle = queue->entry[i].event_cycle;
+            index = i;
+            row_buffer_hit = 1;
+        }	  
+    }
+    
+    // if no non-blacklisted requests are found, then search for the oldest row-buffer hit request
+    if(index == -1){
+        for(uint32_t i=0; i<queue->SIZE; i++){
+            // search for the oldest open row hit
+            // already scheduled
+            if (queue->entry[i].scheduled) 
+                continue;
+
+            // empty entry
+            read_addr = queue->entry[i].address;
+            if (read_addr == 0) 
+                continue;
+
+            read_channel = dram_get_channel(read_addr);
+            read_rank = dram_get_rank(read_addr);
+            read_bank = dram_get_bank(read_addr);
+
+            // bank is busy
+            if (bank_request[read_channel][read_rank][read_bank].working) { // should we check this or not? how do we know if bank is busy or not for all requests in the queue?
+
+                //DP ( if (warmup_complete[0]) {
+                //cout << queue->NAME << " " << __func__ << " instr_id: " << queue->entry[i].instr_id << " bank is busy";
+                //cout << " swrites: " << scheduled_writes[channel] << " sreads: " << scheduled_reads[channel];
+                //cout << " write: " << +bank_request[read_channel][read_rank][read_bank].is_write << " read: " << +bank_request[read_channel][read_rank][read_bank].is_read << hex;
+                //cout << " address: " << queue->entry[i].address << dec << " channel: " << read_channel << " rank: " << read_rank << " bank: " << read_bank << endl; });
+
+                continue;
+            }
+
+            read_row = dram_get_row(read_addr);
+            //read_column = dram_get_column(read_addr);
+
+            // check open row
+            if (bank_request[read_channel][read_rank][read_bank].open_row != read_row) {
+
+                /*
+                DP ( if (warmup_complete[0]) {
+                cout << queue->NAME << " " << __func__ << " instr_id: " << queue->entry[i].instr_id << " row is inactive";
+                cout << " swrites: " << scheduled_writes[channel] << " sreads: " << scheduled_reads[channel];
+                cout << " write: " << +bank_request[read_channel][read_rank][read_bank].is_write << " read: " << +bank_request[read_channel][read_rank][read_bank].is_read << hex;
+                cout << " address: " << queue->entry[i].address << dec << " channel: " << read_channel << " rank: " << read_rank << " bank: " << read_bank << endl; });
+                */
+
+                continue;
+            }
+
+            // select the oldest entry
+            if (queue->entry[i].event_cycle < oldest_cycle) {
+                oldest_cycle = queue->entry[i].event_cycle;
+                index = i;
+                row_buffer_hit = 1;
+            }	  
+        }
+        
+    }
+
+    // no matching non-blacklisted open_row (row buffer miss), simply find the oldest request, even if it is blacklisted
+    if (index == -1) { 
+
+        oldest_cycle = UINT64_MAX;
+        for (uint32_t i=0; i<queue->SIZE; i++) {
+
+            // already scheduled
+            if (queue->entry[i].scheduled)
+                continue;
+
+            // empty entry
+            read_addr = queue->entry[i].address;
+            if (read_addr == 0) 
+                continue;
+
+            // bank is busy
+            read_channel = dram_get_channel(read_addr);
+            read_rank = dram_get_rank(read_addr);
+            read_bank = dram_get_bank(read_addr);
+            if (bank_request[read_channel][read_rank][read_bank].working) 
+                continue;
+
+            //read_row = dram_get_row(read_addr);
+            //read_column = dram_get_column(read_addr);
+
+            // select the oldest entry
+            if (queue->entry[i].event_cycle <= oldest_cycle) {
+                oldest_cycle = queue->entry[i].event_cycle;
+                index = i;
+            }
+        }
+    }
+
+    // at this point, the scheduler knows which bank to access and if the request is a row buffer hit or miss
+    if (index != -1) { // scheduler might not find anything if all requests are already scheduled or all banks are busy
+
+        uint64_t LATENCY = 0;
+        if (row_buffer_hit)  
+            LATENCY = tCAS;
+        else 
+            LATENCY = tRP + tRCD + tCAS;
+
+        uint64_t op_addr = queue->entry[index].address;
+        uint32_t op_cpu = queue->entry[index].cpu,
+                 op_channel = dram_get_channel(op_addr), 
+                 op_rank = dram_get_rank(op_addr), 
+                 op_bank = dram_get_bank(op_addr), 
+                 op_row = dram_get_row(op_addr);
+        #ifdef DEBUG_PRINT
+                uint32_t op_column = dram_get_column(op_addr);
+        #endif
+
+        // this bank is now busy
+        bank_request[op_channel][op_rank][op_bank].working = 1;
+        bank_request[op_channel][op_rank][op_bank].working_type = queue->entry[index].type;
+        bank_request[op_channel][op_rank][op_bank].cycle_available = current_core_cycle[op_cpu] + LATENCY;
+
+        bank_request[op_channel][op_rank][op_bank].request_index = index;
+        bank_request[op_channel][op_rank][op_bank].row_buffer_hit = row_buffer_hit;
+        if (queue->is_WQ) {
+            bank_request[op_channel][op_rank][op_bank].is_write = 1;
+            bank_request[op_channel][op_rank][op_bank].is_read = 0;
+            scheduled_writes[op_channel]++;
+        }
+        else {
+            bank_request[op_channel][op_rank][op_bank].is_write = 0;
+            bank_request[op_channel][op_rank][op_bank].is_read = 1;
+            scheduled_reads[op_channel]++;
+        }
+
+        // update open row
+        bank_request[op_channel][op_rank][op_bank].open_row = op_row;
+
+        queue->entry[index].scheduled = 1;
+        queue->entry[index].event_cycle = current_core_cycle[op_cpu] + LATENCY;
+
+        update_schedule_cycle(queue);
+        update_process_cycle(queue);
+
+        DP (if (warmup_complete[op_cpu]) {
+        cout << "[" << queue->NAME << "] " <<  __func__ << " instr_id: " << queue->entry[index].instr_id;
+        cout << " row buffer: " << (row_buffer_hit ? (int)bank_request[op_channel][op_rank][op_bank].open_row : -1) << hex;
+        cout << " address: " << queue->entry[index].address << " full_addr: " << queue->entry[index].full_addr << dec;
+        cout << " index: " << index << " occupancy: " << queue->occupancy;
+        cout << " ch: " << op_channel << " rank: " << op_rank << " bank: " << op_bank; // wrong from here
+        cout << " row: " << op_row << " col: " << op_column;
+        cout << " current: " << current_core_cycle[op_cpu] << " event: " << queue->entry[index].event_cycle << endl; });
+    }
+
+    #endif
+
+    #ifdef ATLAS
+
+    uint64_t read_addr;
+    uint32_t read_channel, read_rank, read_bank, read_row;
+    uint8_t  row_buffer_hit = 0;
+
+    int index = -1;
+    uint64_t oldest_cycle = UINT64_MAX;
+    uint32_t lowest_rank = UINT32_MAX;
+
+    //first, search for a request from the lowest ATLAS rank, that is the oldest open row hit
+    for (uint32_t i = 0; i < queue->SIZE; i++) {
+        uint8_t CPU_ID = queue->entry[i].cpu;
+
+        // search for the oldest open row hit
+        // already scheduled
+        if (queue->entry[i].scheduled) 
+            continue;
+
+        // empty entry
+        read_addr = queue->entry[i].address;
+        if (read_addr == 0) 
+            continue;
+
+        read_channel = dram_get_channel(read_addr);
+        read_rank = dram_get_rank(read_addr);
+        read_bank = dram_get_bank(read_addr);
+
+        // bank is busy
+        if (bank_request[read_channel][read_rank][read_bank].working) { // should we check this or not? how do we know if bank is busy or not for all requests in the queue?
+
+            //DP ( if (warmup_complete[0]) {
+            //cout << queue->NAME << " " << __func__ << " instr_id: " << queue->entry[i].instr_id << " bank is busy";
+            //cout << " swrites: " << scheduled_writes[channel] << " sreads: " << scheduled_reads[channel];
+            //cout << " write: " << +bank_request[read_channel][read_rank][read_bank].is_write << " read: " << +bank_request[read_channel][read_rank][read_bank].is_read << hex;
+            //cout << " address: " << queue->entry[i].address << dec << " channel: " << read_channel << " rank: " << read_rank << " bank: " << read_bank << endl; });
+
+            continue;
+        }
+
+        read_row = dram_get_row(read_addr);
+        //read_column = dram_get_column(read_addr);
+
+        // check open row
+        if (bank_request[read_channel][read_rank][read_bank].open_row != read_row) {
+
+            /*
+            DP ( if (warmup_complete[0]) {
+            cout << queue->NAME << " " << __func__ << " instr_id: " << queue->entry[i].instr_id << " row is inactive";
+            cout << " swrites: " << scheduled_writes[channel] << " sreads: " << scheduled_reads[channel];
+            cout << " write: " << +bank_request[read_channel][read_rank][read_bank].is_write << " read: " << +bank_request[read_channel][read_rank][read_bank].is_read << hex;
+            cout << " address: " << queue->entry[i].address << dec << " channel: " << read_channel << " rank: " << read_rank << " bank: " << read_bank << endl; });
+            */
+
+            continue;
+        }
+
+        // select the entry from the lowest rank that has an open row hit
+        if (ATLAS_RANK[CPU_ID] < lowest_rank){
+            oldest_cycle = queue->entry[i].event_cycle;
+            lowest_rank = ATLAS_RANK[CPU_ID];
+            index = i;
+            row_buffer_hit = 1;
+        }
+
+        // if there is an entry from the same rank, select the oldest entry
+        if (queue->entry[i].event_cycle < oldest_cycle && ATLAS_RANK[CPU_ID] == lowest_rank) {
+            oldest_cycle = queue->entry[i].event_cycle;
+            lowest_rank = ATLAS_RANK[CPU_ID];
+            index = i;
+            row_buffer_hit = 1;
+        }	  
+    }
+    // no matching open_row (row buffer miss)
+    if (index == -1) { 
+        lowest_rank = UINT32_MAX;
+        oldest_cycle = UINT64_MAX;
+        for (uint32_t i=0; i<queue->SIZE; i++) {
+            uint8_t CPU_ID = queue->entry[i].cpu;
+
+            // already scheduled
+            if (queue->entry[i].scheduled)
+                continue;
+
+            // empty entry
+            read_addr = queue->entry[i].address;
+            if (read_addr == 0) 
+                continue;
+
+            // bank is busy
+            read_channel = dram_get_channel(read_addr);
+            read_rank = dram_get_rank(read_addr);
+            read_bank = dram_get_bank(read_addr);
+            if (bank_request[read_channel][read_rank][read_bank].working) 
+                continue;
+
+            //read_row = dram_get_row(read_addr);
+            //read_column = dram_get_column(read_addr);
+
+            // select the entry from the lowest rank that has an open row hit
+            if (ATLAS_RANK[CPU_ID] < lowest_rank){
+                oldest_cycle = queue->entry[i].event_cycle;
+                lowest_rank = ATLAS_RANK[CPU_ID];
+                index = i;
+                row_buffer_hit = 1;
+            }
+
+            // if there is an entry from the same rank, select the oldest entry
+            if (queue->entry[i].event_cycle < oldest_cycle && ATLAS_RANK[CPU_ID] == lowest_rank) {
+                oldest_cycle = queue->entry[i].event_cycle;
+                lowest_rank = ATLAS_RANK[CPU_ID];
+                index = i;
+                row_buffer_hit = 1;
+            }	  
+        }
+    }
+    
+    // at this point, the scheduler knows which bank to access and if the request is a row buffer hit or miss
+    if (index != -1) { // scheduler might not find anything if all requests are already scheduled or all banks are busy
+
+        uint64_t LATENCY = 0;
+        if (row_buffer_hit)  
+            LATENCY = tCAS;
+        else 
+            LATENCY = tRP + tRCD + tCAS;
+
+        uint64_t op_addr = queue->entry[index].address;
+        uint32_t op_cpu = queue->entry[index].cpu,
+                 op_channel = dram_get_channel(op_addr), 
+                 op_rank = dram_get_rank(op_addr), 
+                 op_bank = dram_get_bank(op_addr), 
+                 op_row = dram_get_row(op_addr);
+        #ifdef DEBUG_PRINT
+                uint32_t op_column = dram_get_column(op_addr);
+        #endif
+
+        // this bank is now busy
+        bank_request[op_channel][op_rank][op_bank].working = 1;
+        bank_request[op_channel][op_rank][op_bank].working_type = queue->entry[index].type;
+        bank_request[op_channel][op_rank][op_bank].cycle_available = current_core_cycle[op_cpu] + LATENCY;
+
+        bank_request[op_channel][op_rank][op_bank].request_index = index;
+        bank_request[op_channel][op_rank][op_bank].row_buffer_hit = row_buffer_hit;
+        if (queue->is_WQ) {
+            bank_request[op_channel][op_rank][op_bank].is_write = 1;
+            bank_request[op_channel][op_rank][op_bank].is_read = 0;
+            scheduled_writes[op_channel]++;
+        }
+        else {
+            bank_request[op_channel][op_rank][op_bank].is_write = 0;
+            bank_request[op_channel][op_rank][op_bank].is_read = 1;
+            scheduled_reads[op_channel]++;
+        }
+
+        // update open row
+        bank_request[op_channel][op_rank][op_bank].open_row = op_row;
+
+        queue->entry[index].scheduled = 1;
+        queue->entry[index].event_cycle = current_core_cycle[op_cpu] + LATENCY;
+
+        update_schedule_cycle(queue);
+        update_process_cycle(queue);
+
+        DP (if (warmup_complete[op_cpu]) {
+        cout << "[" << queue->NAME << "] " <<  __func__ << " instr_id: " << queue->entry[index].instr_id;
+        cout << " row buffer: " << (row_buffer_hit ? (int)bank_request[op_channel][op_rank][op_bank].open_row : -1) << hex;
+        cout << " address: " << queue->entry[index].address << " full_addr: " << queue->entry[index].full_addr << dec;
+        cout << " index: " << index << " occupancy: " << queue->occupancy;
+        cout << " ch: " << op_channel << " rank: " << op_rank << " bank: " << op_bank; // wrong from here
+        cout << " row: " << op_row << " col: " << op_column;
+        cout << " current: " << current_core_cycle[op_cpu] << " event: " << queue->entry[index].event_cycle << endl; });
+    }
+
+    #endif
+
+    #ifdef FRFCFS
+
     uint64_t read_addr;
     uint32_t read_channel, read_rank, read_bank, read_row;
     uint8_t  row_buffer_hit = 0;
@@ -146,7 +544,7 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
     int oldest_index = -1;
     uint64_t oldest_cycle = UINT64_MAX;
 
-    // first, search for the oldest open row hit
+    // search for the oldest open row hit 
     for (uint32_t i=0; i<queue->SIZE; i++) {
 
         // already scheduled
@@ -199,6 +597,7 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
         }	  
     }
 
+
     if (oldest_index == -1) { // no matching open_row (row buffer miss)
 
         oldest_cycle = UINT64_MAX;
@@ -246,9 +645,9 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
                  op_rank = dram_get_rank(op_addr), 
                  op_bank = dram_get_bank(op_addr), 
                  op_row = dram_get_row(op_addr);
-#ifdef DEBUG_PRINT
-        uint32_t op_column = dram_get_column(op_addr);
-#endif
+        #ifdef DEBUG_PRINT
+                uint32_t op_column = dram_get_column(op_addr);
+        #endif
 
         // this bank is now busy
         bank_request[op_channel][op_rank][op_bank].working = 1;
@@ -286,12 +685,14 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
         cout << " row: " << op_row << " col: " << op_column;
         cout << " current: " << current_core_cycle[op_cpu] << " event: " << queue->entry[oldest_index].event_cycle << endl; });
     }
+
+    #endif
 }
 
 void MEMORY_CONTROLLER::process(PACKET_QUEUE *queue)
 {
     uint32_t request_index = queue->next_process_index;
-
+    
     // sanity check
     if (request_index == queue->SIZE)
         assert(0);
@@ -364,6 +765,34 @@ void MEMORY_CONTROLLER::process(PACKET_QUEUE *queue)
 
                 scheduled_reads[op_channel]--;
             }
+
+
+
+            #ifdef BLISS
+
+            //the request that was scheduled belongs to the same ASID as the last scheduled request
+            uint16_t CPU_ID = queue->entry[request_index].cpu;
+            if(CPU_ID == last_scheduled_request){
+                BLACKLIST_COUNTER[CPU_ID] += 1;
+                if(BLACKLIST_COUNTER[CPU_ID] > blacklisting_threshold){
+                    BLACKLIST[CPU_ID] = true;
+                    BLACKLIST_COUNTER[CPU_ID] = 0;
+                }
+            }else{
+                BLACKLIST_COUNTER[CPU_ID] = 0;
+            }
+            //change the last scheduled request match the ASID of the request that was just scheduled
+            last_scheduled_request = CPU_ID;
+
+            #endif
+
+            #ifdef ATLAS
+
+            AS[queue->entry[request_index].cpu]++;
+            //printf("AS[%d] = %d\n", queue->entry[request_index].cpu, AS[queue->entry[request_index].cpu]);
+            
+            #endif
+
 
             // remove the oldest entry
             queue->remove_queue(&queue->entry[request_index]);
@@ -442,7 +871,7 @@ int MEMORY_CONTROLLER::add_rq(PACKET *packet)
         return -1;
     }
 
-    // check for the latest wirtebacks in the write queue
+    // check for the latest writebacks in the write queue
     uint32_t channel = dram_get_channel(packet->address);
     int wq_index = check_dram_queue(&WQ[channel], packet);
     if (wq_index != -1) {
@@ -719,3 +1148,49 @@ void MEMORY_CONTROLLER::increment_WQ_FULL(uint64_t address)
     uint32_t channel = dram_get_channel(address);
     WQ[channel].FULL++;
 }
+
+#ifdef BLISS
+
+void MEMORY_CONTROLLER::clear_blacklist(uint32_t cpu){
+    for (uint32_t i=0; i<DRAM_CHANNELS; i++){
+        for(uint32_t j=0; j<DRAM_WQ_SIZE; j++){
+            if(WQ[i].entry[j].cpu == cpu){
+                uint16_t ASID = ((uint16_t)WQ[i].entry[j].asid[0]) | WQ[i].entry[j].asid[1];
+                BLACKLIST[ASID] = false;
+                BLACKLIST_COUNTER[ASID] = 0;
+            }
+        }
+        for(uint32_t j=0; j<DRAM_RQ_SIZE; j++){
+            if(WQ[i].entry[j].cpu == cpu){
+                uint16_t ASID = ((uint16_t)WQ[i].entry[j].asid[0]) | WQ[i].entry[j].asid[1];
+                BLACKLIST[ASID] = false;
+                BLACKLIST_COUNTER[ASID] = 0;
+            }
+        }
+    }
+}
+
+#endif
+
+#ifdef ATLAS
+
+void MEMORY_CONTROLLER::calculateLAS(){
+    std::vector<std::pair<unsigned int, unsigned int>> total_AS;
+    for(const auto& x : AS){
+        TOTAL_AS[x.first] = (alpha * TOTAL_AS[x.first]) + ((1-alpha) * x.second);
+        AS[x.first] = 0;
+        total_AS.push_back(std::make_pair(x.first, TOTAL_AS[x.first]));
+    }
+    std::sort(total_AS.begin(), total_AS.end(), 
+        [](const std::pair<unsigned int, unsigned int> &left, const std::pair<unsigned int, unsigned int> &right) {
+        return left.second < right.second;
+    });
+
+    int rank=0;
+    for(const auto& x : total_AS){
+        ATLAS_RANK[x.first] = rank;
+        rank++;
+    }
+}
+
+#endif
