@@ -157,12 +157,7 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
     //first, search for the oldest row-buffer hit request that is not blacklisted
     for (uint32_t i = 0; i < queue->SIZE; i++) {
         uint8_t CPU_ID = queue->entry[i].cpu;
-        // skip if blacklisted
-        if(BLACKLIST[CPU_ID]){
-            continue;
-        }
 
-        // search for the oldest open row hit
         // already scheduled
         if (queue->entry[i].scheduled) 
             continue;
@@ -205,12 +200,47 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
             continue;
         }
 
-        // select the oldest entry
-        if (queue->entry[i].event_cycle < oldest_cycle) {
+        // select a non-blacklisted entry
+        if(!BLACKLIST[CPU_ID]){
+            index = i;
+            row_buffer_hit = 1;
+        }
+
+        // select the oldest non-blacklisted entry
+        if (queue->entry[i].event_cycle < oldest_cycle && !BLACKLIST[CPU_ID]) {
             oldest_cycle = queue->entry[i].event_cycle;
             index = i;
             row_buffer_hit = 1;
         }	  
+    }
+
+    //if no non-blacklisted row-hits are found, then search for oldest non-blacklisted request
+    if(index == -1){
+        for(uint32_t i=0; i<queue->SIZE; i++){
+            uint8_t CPU_ID = queue->entry[i].cpu;
+            // already scheduled
+            if (queue->entry[i].scheduled) 
+                continue;
+
+            // empty entry
+            read_addr = queue->entry[i].address;
+            if (read_addr == 0) 
+                continue;   
+
+            // bank is busy
+            read_channel = dram_get_channel(read_addr);
+            read_rank = dram_get_rank(read_addr);
+            read_bank = dram_get_bank(read_addr);
+            if (bank_request[read_channel][read_rank][read_bank].working) 
+                continue;
+
+            // select the oldest entry
+            if (queue->entry[i].event_cycle < oldest_cycle && !BLACKLIST[CPU_ID]) {
+                oldest_cycle = queue->entry[i].event_cycle;
+                index = i;
+                row_buffer_hit = 1;
+            }	  
+        }
     }
     
     // if no non-blacklisted requests are found, then search for the oldest row-buffer hit request
@@ -269,7 +299,7 @@ void MEMORY_CONTROLLER::schedule(PACKET_QUEUE *queue)
         
     }
 
-    // no matching non-blacklisted open_row (row buffer miss), simply find the oldest request, even if it is blacklisted
+    // no open_row (row buffer miss), simply find the oldest request, even if it is blacklisted
     if (index == -1) { 
 
         oldest_cycle = UINT64_MAX;
@@ -1152,21 +1182,9 @@ void MEMORY_CONTROLLER::increment_WQ_FULL(uint64_t address)
 #ifdef BLISS
 
 void MEMORY_CONTROLLER::clear_blacklist(uint32_t cpu){
-    for (uint32_t i=0; i<DRAM_CHANNELS; i++){
-        for(uint32_t j=0; j<DRAM_WQ_SIZE; j++){
-            if(WQ[i].entry[j].cpu == cpu){
-                uint16_t ASID = ((uint16_t)WQ[i].entry[j].asid[0]) | WQ[i].entry[j].asid[1];
-                BLACKLIST[ASID] = false;
-                BLACKLIST_COUNTER[ASID] = 0;
-            }
-        }
-        for(uint32_t j=0; j<DRAM_RQ_SIZE; j++){
-            if(WQ[i].entry[j].cpu == cpu){
-                uint16_t ASID = ((uint16_t)WQ[i].entry[j].asid[0]) | WQ[i].entry[j].asid[1];
-                BLACKLIST[ASID] = false;
-                BLACKLIST_COUNTER[ASID] = 0;
-            }
-        }
+    for(uint16_t i = 0; i < NUM_CPUS; i++){
+        BLACKLIST[i] = false;
+        BLACKLIST_COUNTER[i] = 0;
     }
 }
 

@@ -1,3 +1,9 @@
+401.bzip2-277B.champsimtrace.xz
+429.mcf-22B.champsimtrace.xz
+410.bwaves-2097B.champsimtrace.xz
+437.leslie3d-232B.champsimtrace.xz
+
+
 436.cactusADM-1804B.champsimtrace.xz
 437.leslie3d-134B.champsimtrace.xz
 450.soplex-247B.champsimtrace.xz

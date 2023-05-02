@@ -1,13 +1,45 @@
 #!/bin/bash
 
-BINTAG=ATLAS
+BINTAG=FRFCFS
 
-if [ "$#" -ne 1 ]; then
+if [ "$#" -ne 2 ]; then
     echo "Illegal number of parameters"
     #echo "Usage: ./build_champsim.sh [branch_pred] [l1d_pref] [l2c_pref] [llc_pref] [llc_repl] [num_core]"
-    echo "Usage: ./build_champsim.sh [l2c_pref]"
+    echo "Usage: ./build_champsim.sh [l2c_pref] [DRAM scheduler]"
     exit 1
 fi
+
+case "$2" in
+    ATLAS)
+        atlas_val=1
+        bliss_val=0
+        frfcfs_val=0
+        BINTAG=ATLAS
+        ;;
+    BLISS)
+        atlas_val=0
+        bliss_val=1
+        frfcfs_val=0
+        BINTAG=BLISS
+        ;;
+    FRFCFS)
+        atlas_val=0
+        bliss_val=0
+        frfcfs_val=1
+        BINTAG=FRFCFS
+        ;;
+    *)
+        echo "Invalid input argument: $1"
+        echo "Usage: $0 [ATLAS|BLISS|FRFCFS]"
+        exit 1
+        ;;
+esac
+
+# Replace the values of ATLAS, BLISS, and FRFCFS in the file
+sed -i "s/^ATLAS = .*/ATLAS = $atlas_val/" Makefile
+sed -i "s/^BLISS = .*/BLISS = $bliss_val/" Makefile
+sed -i "s/^FRFCFS = .*/FRFCFS = $frfcfs_val/" Makefile
+
 
 # ChampSim configuration
 #BRANCH=$1           # branch/*.bpred
@@ -27,7 +59,7 @@ BRANCH=perceptron
 L1D_PREFETCHER=no
 LLC_PREFETCHER=no
 LLC_REPLACEMENT=lru
-NUM_CORE=4````````````````````````````````
+NUM_CORE=8````````````````````````````````
 #################################################
 
 # Sanity check
